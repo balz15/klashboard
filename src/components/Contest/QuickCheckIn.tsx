@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CheckCircle, Zap } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getTodayString, getYesterdayString } from '../../lib/dateUtils';
+import { refreshRemindersAfterLogging } from '../../lib/engagementReminders';
 
 type Metric = {
   id: string;
@@ -77,6 +78,7 @@ export function QuickCheckIn({ contestId, participantId, metrics, onSuccess }: Q
         streak_count: streakCount,
       });
 
+      void refreshRemindersAfterLogging();
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);

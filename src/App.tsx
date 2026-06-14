@@ -2,19 +2,24 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Home } from './pages/Home';
 import { Auth } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
+import { UserTemplates } from './pages/UserTemplates';
 import { ContestDetail } from './pages/ContestDetail';
 import { About } from './pages/About';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { isConfigured } from './lib/supabase';
-import { getCurrentRoute, onRouteChange } from './lib/router';
+import { getCurrentRoute, onRouteChange, initRouterFromBrowser, subscribeToBrowserNavigation } from './lib/router';
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const [currentPath, setCurrentPath] = useState(getCurrentRoute());
+  const [currentPath, setCurrentPath] = useState(() => initRouterFromBrowser());
 
   useEffect(() => {
-    return onRouteChange(route => setCurrentPath(route));
+    return onRouteChange((route) => setCurrentPath(route));
+  }, []);
+
+  useEffect(() => {
+    return subscribeToBrowserNavigation(() => setCurrentPath(getCurrentRoute()));
   }, []);
 
   if (loading) {
@@ -32,6 +37,10 @@ function AppContent() {
 
   if (currentPath === '/about') {
     return <About />;
+  }
+
+  if (currentPath === '/templates/community') {
+    return user ? <UserTemplates /> : <Auth />;
   }
 
   if (currentPath === '/auth') {

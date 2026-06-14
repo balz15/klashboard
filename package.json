@@ -10,10 +10,13 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "android": "npm run build && npx cap sync android && npx cap open android",
+    "build:android": "npm run build && npx cap sync android",
+    "build:android:debug": "npm run build && npx cap sync android && scripts\\build-android-debug.bat",
     "sync": "npx cap sync",
     "build:release": "./build-release.sh"
   },
   "dependencies": {
+    "@capacitor/app": "^8.0.0",
     "@capacitor/android": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",

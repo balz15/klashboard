@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { supabase, ChallengeTemplate } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { ChallengeIconPicker } from '../Contest/ChallengeIconPicker';
+import { resolveIconForSave, uploadContestIcon, type IconPickerValue } from '../../lib/contestIcons';
 import {
   dateAtEndOfDayLocal,
   dateAtStartOfDayLocal,
   smartDatetimeLocalUpdate,
+  toContestDbDate,
 } from '../../lib/dateUtils';
 
 type Metric = {
@@ -26,37 +29,49 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
   const [error, setError] = useState('');
 
   const defaultStart = new Date();
-  defaultStart.setDate(defaultStart.getDate() + 1);
   const defaultEnd = new Date();
   defaultEnd.setDate(defaultEnd.getDate() + (template?.suggested_duration_days || 30));
-  const tomorrowStr = dateAtStartOfDayLocal(defaultStart);
+  const todayStartStr = dateAtStartOfDayLocal(defaultStart);
   const defaultEndStr = dateAtEndOfDayLocal(defaultEnd);
 
   const [formData, setFormData] = useState({
     name: template?.name || '',
     description: template?.description || '',
-    startDate: tomorrowStr,
+    startDate: todayStartStr,
     endDate: defaultEndStr,
-    metrics: (template?.default_metrics || []) as Metric[],
+    metrics: (template?.default_metrics?.length
+      ? template.default_metrics
+      : [{ name: '', unit: '', type: 'number' as const }]) as Metric[],
+    submitAsTemplate: false,
+    iconPicker: {
+      icon: template?.icon_url ? 'custom' : template?.icon || 'target',
+      iconUrl: template?.icon_url ?? null,
+      customFile: null,
+    } as IconPickerValue,
   });
 
   useEffect(() => {
     if (template) {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = dateAtStartOfDayLocal(tomorrow);
+      const today = new Date();
+      const todayStr = dateAtStartOfDayLocal(today);
 
       const endDate = new Date();
       endDate.setDate(endDate.getDate() + (template.suggested_duration_days || 30));
       const endStr = dateAtEndOfDayLocal(endDate);
 
-      setFormData({
+      setFormData((prev) => ({
+        ...prev,
         name: template.name,
         description: template.description,
-        startDate: tomorrowStr,
+        startDate: todayStr,
         endDate: endStr,
         metrics: (template.default_metrics || []) as Metric[],
-      });
+        iconPicker: {
+          icon: template.icon_url ? 'custom' : template.icon || 'target',
+          iconUrl: template.icon_url ?? null,
+          customFile: null,
+        },
+      }));
     }
   }, [template]);
 
@@ -99,14 +114,28 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
 
     try {
       const inviteCode = await generateUniqueCode();
+      const iconPayload = resolveIconForSave(formData.iconPicker);
+      let iconUrl = iconPayload.iconUrl;
+
+      if (iconPayload.customFile) {
+        iconUrl = await uploadContestIcon(user.id, iconPayload.customFile);
+      }
 
       const metricsForDB = formData.metrics.map((m, i) => ({
         id: `metric-${i}`,
         name: m.name.toLowerCase().replace(/\s+/g, '_'),
         label: m.name,
         unit: m.unit,
-        type: 'number' as const,
+        type: m.type || ('number' as const),
       }));
+
+      const durationDays = Math.max(
+        1,
+        Math.ceil(
+          (new Date(formData.endDate).getTime() - new Date(formData.startDate).getTime()) /
+            86400000
+        )
+      );
 
       const { data, error: insertError } = await supabase
         .from('contests')
@@ -114,13 +143,15 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
           creator_id: user.id,
           name: formData.name,
           description: formData.description,
-          start_date: formData.startDate,
-          end_date: formData.endDate,
+          start_date: toContestDbDate(formData.startDate),
+          end_date: toContestDbDate(formData.endDate),
           visibility: 'private',
           status: 'active',
           metrics: metricsForDB,
           scoring_rules: {},
           invite_code: inviteCode,
+          icon: iconPayload.icon,
+          icon_url: iconUrl,
         })
         .select()
         .single();
@@ -130,11 +161,39 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
         throw insertError;
       }
 
-      await supabase.from('contest_participants').insert({
+      const { error: participantError } = await supabase.from('contest_participants').insert({
         contest_id: data.id,
         user_id: user.id,
         role: 'admin',
       });
+
+      if (participantError) {
+        console.error('Participant insert error:', participantError);
+        throw participantError;
+      }
+
+      if (formData.submitAsTemplate) {
+        const { error: templateError } = await supabase.from('user_template_submissions').insert({
+          contest_id: data.id,
+          submitted_by: user.id,
+          name: formData.name,
+          description: formData.description,
+          category: 'custom',
+          default_metrics: formData.metrics.map((m) => ({
+            name: m.name,
+            unit: m.unit,
+            type: m.type,
+          })),
+          suggested_duration_days: durationDays,
+          icon: iconPayload.icon,
+          icon_url: iconUrl,
+          status: 'pending',
+        });
+        if (templateError) {
+          console.error('Template submission error:', templateError);
+          throw templateError;
+        }
+      }
 
       onSuccess();
       onClose();
@@ -204,6 +263,14 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
                 placeholder="Describe your challenge and goals"
                 rows={3}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              <ChallengeIconPicker
+                value={formData.iconPicker}
+                onChange={(iconPicker) => setFormData({ ...formData, iconPicker })}
+                disabled={loading}
               />
             </div>
 
@@ -283,6 +350,26 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
               <p className="text-xs text-gray-500 mt-2">
                 Choose "Yes/No" for simple daily completion (Did you do it?), or "Number" to track quantities (How many?).
               </p>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.submitAsTemplate}
+                  onChange={(e) => updateField('submitAsTemplate', e.target.checked)}
+                  className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-900">
+                    Offer as a template for others (optional)
+                  </span>
+                  <span className="block text-xs text-gray-600 mt-1">
+                    Default is off. If enabled, your challenge is submitted for review. Approved templates appear under
+                    &quot;User created templates&quot; for everyone.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
         </div>

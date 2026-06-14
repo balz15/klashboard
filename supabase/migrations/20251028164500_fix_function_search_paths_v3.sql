@@ -22,8 +22,13 @@ SET search_path = public
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, created_at)
-  VALUES (NEW.id, NEW.email, NOW())
+  INSERT INTO public.profiles (id, email, full_name, created_at)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+    NOW()
+  )
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;

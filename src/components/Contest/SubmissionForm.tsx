@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getTodayString, getYesterdayString } from '../../lib/dateUtils';
+import { refreshRemindersAfterLogging } from '../../lib/engagementReminders';
 
 type Metric = {
   id: string;
@@ -106,6 +107,7 @@ export function SubmissionForm({
         });
       }
 
+      void refreshRemindersAfterLogging();
       setSuccess(true);
       setTimeout(() => {
         onSuccess();

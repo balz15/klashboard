@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Calendar, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getLocalDateString } from '../../lib/dateUtils';
+import { refreshRemindersAfterLogging } from '../../lib/engagementReminders';
 
 type Metric = {
   id: string;
@@ -148,6 +149,9 @@ export function DailyTracker({
       }
 
       await loadSubmissions();
+      if (editingDate === getLocalDateString(new Date())) {
+        void refreshRemindersAfterLogging();
+      }
       setEditingDate(null);
       setMetricValues({});
       setNotes('');

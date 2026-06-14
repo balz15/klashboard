@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Group Challenge</string>
-    <string name="title_activity_main">Group Challenge</string>
+    <string name="app_name">KlashBoard</string>
+    <string name="title_activity_main">KlashBoard</string>
     <string name="package_name">com.groupchallenge.app</string>
     <string name="custom_url_scheme">com.groupchallenge.app</string>
 </resources>

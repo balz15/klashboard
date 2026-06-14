@@ -11,6 +11,7 @@ import {
   Lock,
   LogOut,
   Settings,
+  MessageCircle,
   Flame,
 } from 'lucide-react';
 import { supabase, Contest } from '../lib/supabase';
@@ -20,19 +21,21 @@ import { SubmissionForm } from '../components/Contest/SubmissionForm';
 import { LeaveContestModal } from '../components/Contest/LeaveContestModal';
 import { ContestSettingsModal } from '../components/Contest/ContestSettingsModal';
 import { DailyTracker } from '../components/Contest/DailyTracker';
-import { StatsDisplay } from '../components/Contest/StatsDisplay';
+import { HabitAnalytics } from '../components/Contest/HabitAnalytics';
 import { GroupProgress } from '../components/Contest/GroupProgress';
 import { QuickCheckIn } from '../components/Contest/QuickCheckIn';
 import { ChallengeCountdown } from '../components/Contest/ChallengeCountdown';
 import { ActivityFeed } from '../components/Contest/ActivityFeed';
 import { GroupStatus } from '../components/Contest/GroupStatus';
+import { ContestChat } from '../components/Contest/ContestChat';
 import { ShareModal } from '../components/Contest/ShareModal';
+import { ChallengeIcon } from '../components/Contest/ChallengeIcon';
 
 type Participant = {
   id: string;
   user_id: string;
   role: 'admin' | 'participant';
-  current_score: number;
+  current_score?: number;
   joined_at: string;
   profiles: {
     email: string;
@@ -50,7 +53,7 @@ type ContestDetailProps = {
 };
 
 export function ContestDetail({ contestId }: ContestDetailProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [contest, setContest] = useState<Contest | null>(null);
   const [participants, setParticipants] = useState<ParticipantWithStreak[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,7 +66,7 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
   const [showSubmissionForm, setShowSubmissionForm] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tracker' | 'stats' | 'leaderboard' | 'group'>('tracker');
+  const [activeTab, setActiveTab] = useState<'tracker' | 'stats' | 'leaderboard' | 'group' | 'chat'>('tracker');
   const [hasLoggedToday, setHasLoggedToday] = useState(false);
 
   useEffect(() => {
@@ -109,12 +112,33 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
         .select('*, profiles(email, full_name)')
         .eq('contest_id', contestId)
         .is('left_at', null)
-        .order('current_score', { ascending: false });
+        .order('joined_at', { ascending: true });
 
       if (participantsError) throw participantsError;
 
+      let rows = participantsData || [];
+
+      // Creators should always be members; repair rows missing after failed setup
+      if (user && contestData.creator_id === user.id) {
+        const creatorRow = rows.find((p) => p.user_id === user.id);
+        if (!creatorRow) {
+          const { data: repaired, error: repairError } = await supabase
+            .from('contest_participants')
+            .insert({
+              contest_id: contestId,
+              user_id: user.id,
+              role: 'admin',
+            })
+            .select('*, profiles(email, full_name)')
+            .single();
+          if (!repairError && repaired) {
+            rows = [...rows, repaired];
+          }
+        }
+      }
+
       const participantsWithStreaks: ParticipantWithStreak[] = await Promise.all(
-        (participantsData || []).map(async (p) => {
+        rows.map(async (p) => {
           const { data: latestSubmission } = await supabase
             .from('submissions')
             .select('streak_count')
@@ -145,9 +169,10 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
 
       if (user) {
         const userParticipant = participantsWithStreaks.find((p) => p.user_id === user.id);
-        setHasJoined(!!userParticipant);
+        const isCreator = contestData.creator_id === user.id;
+        setHasJoined(!!userParticipant || isCreator);
         setUserParticipantId(userParticipant?.id || null);
-        setUserRole(userParticipant?.role || null);
+        setUserRole(userParticipant?.role || (isCreator ? 'admin' : null));
         setUserStreak(userParticipant?.current_streak || 0);
 
         if (userParticipant) {
@@ -272,7 +297,10 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 sm:p-8 mb-8 text-white shadow-lg">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-6">
             <div className="flex-1 min-w-0">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 mb-2">
+              <div className="flex items-start gap-3 mb-2">
+                <ChallengeIcon icon={contest.icon} iconUrl={contest.icon_url} size="lg" />
+                <div className="min-w-0">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <h1 className="text-2xl sm:text-4xl font-bold break-words">{contest.name}</h1>
                 {contest.is_closed_for_joining && (
                   <span className="flex items-center gap-1 px-3 py-1 bg-red-500 bg-opacity-20 backdrop-blur-sm rounded-lg text-sm font-medium shrink-0 self-start">
@@ -281,7 +309,9 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
                   </span>
                 )}
               </div>
-              <p className="text-emerald-50 text-base sm:text-lg break-words">{contest.description}</p>
+              <p className="text-emerald-50 text-base sm:text-lg break-words mt-1">{contest.description}</p>
+                </div>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2 w-full lg:w-auto lg:shrink-0">
               {isAdmin && (
@@ -472,11 +502,11 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
                 }`}
               >
                 <TrendingUp className="w-4 h-4 inline mr-1 sm:mr-2 align-text-bottom" />
-                Stats
+                Stats & Insights
               </button>
               <button
                 onClick={() => setActiveTab('leaderboard')}
-                className={`min-w-0 py-3 px-2 sm:px-4 rounded-lg transition font-medium text-sm sm:text-base sm:flex-1 sm:min-w-[140px] col-span-2 sm:col-span-1 ${
+                className={`min-w-0 py-3 px-2 sm:px-4 rounded-lg transition font-medium text-sm sm:text-base sm:flex-1 sm:min-w-[120px] ${
                   activeTab === 'leaderboard'
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-50'
@@ -484,6 +514,17 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
               >
                 <Trophy className="w-4 h-4 inline mr-1 sm:mr-2 align-text-bottom" />
                 Group Progress
+              </button>
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`min-w-0 py-3 px-2 sm:px-4 rounded-lg transition font-medium text-sm sm:text-base sm:flex-1 sm:min-w-[100px] col-span-2 sm:col-span-1 ${
+                  activeTab === 'chat'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <MessageCircle className="w-4 h-4 inline mr-1 sm:mr-2 align-text-bottom" />
+                Chat
               </button>
             </div>
 
@@ -509,12 +550,21 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
               </div>
             )}
 
-            {activeTab === 'stats' && (
-              <StatsDisplay
+            {activeTab === 'stats' && userParticipantId && (
+              <HabitAnalytics
                 contestId={contestId}
                 participantId={userParticipantId}
                 metrics={contest.metrics || []}
                 startDate={contest.start_date}
+                endDate={contest.end_date}
+                scoringRules={contest.scoring_rules}
+                contestName={contest.name}
+                userDisplayName={profile?.full_name || profile?.email?.split('@')[0] || 'Me'}
+                participants={participants.map((p) => ({
+                  id: p.id,
+                  name: p.profiles.full_name || p.profiles.email.split('@')[0],
+                  isSelf: p.user_id === user?.id,
+                }))}
               />
             )}
 
@@ -525,6 +575,15 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
                 endDate={contest.end_date}
                 currentUserId={user?.id}
                 metrics={contest.metrics || []}
+              />
+            )}
+
+            {activeTab === 'chat' && (
+              <ContestChat
+                contestId={contestId}
+                endDate={contest.end_date}
+                contestStatus={contest.status}
+                endedAt={contest.ended_at}
               />
             )}
           </div>
@@ -612,11 +671,14 @@ export function ContestDetail({ contestId }: ContestDetailProps) {
           contestId={contestId}
           contestName={contest.name}
           contestDescription={contest.description}
+          contestIcon={contest.icon}
+          contestIconUrl={contest.icon_url}
           currentStatus={contest.status}
           isClosedForJoining={contest.is_closed_for_joining || false}
           startDate={contest.start_date}
           endDate={contest.end_date}
           metrics={contest.metrics || []}
+          scoringRules={contest.scoring_rules}
           autoDeleteAt={contest.auto_delete_at || null}
           onClose={() => setShowSettingsModal(false)}
           onSuccess={() => {

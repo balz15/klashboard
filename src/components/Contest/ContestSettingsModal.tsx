@@ -1,7 +1,18 @@
 import { useState } from 'react';
 import { X, AlertCircle, CheckCircle, Lock, Unlock, Calendar, Trash2, Edit2, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { ChallengeIconPicker } from './ChallengeIconPicker';
+import { uploadContestIcon, type IconPickerValue } from '../../lib/contestIcons';
 import { parseContestDateToDatetimeLocal, smartDatetimeLocalUpdate } from '../../lib/dateUtils';
+import {
+  parseScoringRules,
+  DEFAULT_GROUP_NOTIFICATIONS,
+  PERIOD_LABELS,
+  type ScoringRules,
+  type StatsPeriod,
+  type MetricGoals,
+} from '../../lib/challengeGoals';
 
 type Metric = {
   id: string;
@@ -15,11 +26,14 @@ type ContestSettingsModalProps = {
   contestId: string;
   contestName: string;
   contestDescription: string;
+  contestIcon?: string;
+  contestIconUrl?: string | null;
   currentStatus: string;
   isClosedForJoining: boolean;
   startDate: string;
   endDate: string;
   metrics: Metric[];
+  scoringRules?: Record<string, unknown>;
   autoDeleteAt: string | null;
   onClose: () => void;
   onSuccess: () => void;
@@ -29,15 +43,19 @@ export function ContestSettingsModal({
   contestId,
   contestName,
   contestDescription,
+  contestIcon = 'target',
+  contestIconUrl = null,
   currentStatus,
   isClosedForJoining,
   startDate,
   endDate,
   metrics,
+  scoringRules: scoringRulesProp,
   autoDeleteAt,
   onClose,
   onSuccess,
 }: ContestSettingsModalProps) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -51,12 +69,47 @@ export function ContestSettingsModal({
   const [editedStartDate, setEditedStartDate] = useState(() => parseContestDateToDatetimeLocal(startDate));
   const [editedEndDate, setEditedEndDate] = useState(() => parseContestDateToDatetimeLocal(endDate));
   const [editedMetrics, setEditedMetrics] = useState<Metric[]>(metrics);
+  const [editedScoringRules, setEditedScoringRules] = useState<ScoringRules>(() =>
+    parseScoringRules(scoringRulesProp)
+  );
+  const [editedIconPicker, setEditedIconPicker] = useState<IconPickerValue>({
+    icon: contestIconUrl ? 'custom' : contestIcon || 'target',
+    iconUrl: contestIconUrl,
+    customFile: null,
+  });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const groupNotify = editedScoringRules.group_notifications ?? DEFAULT_GROUP_NOTIFICATIONS;
+
+  const updateMetricGoal = (metricName: string, field: keyof MetricGoals, value: string) => {
+    const num = value === '' ? undefined : Number(value);
+    setEditedScoringRules((prev) => ({
+      ...prev,
+      goals: {
+        ...prev.goals,
+        [metricName]: {
+          ...(prev.goals?.[metricName] ?? {}),
+          [field]: num,
+        },
+      },
+    }));
+  };
 
   const handleDeleteContest = async () => {
     setLoading(true);
     setError(null);
     try {
+      const { error: detachError } = await supabase.rpc('detach_contest_from_templates', {
+        p_contest_id: contestId,
+      });
+      if (
+        detachError &&
+        !detachError.message.includes('Could not find the function') &&
+        !detachError.message.includes('schema cache')
+      ) {
+        console.warn('detach_contest_from_templates:', detachError);
+      }
+
       const { error: deleteError } = await supabase
         .from('contests')
         .delete()
@@ -69,7 +122,14 @@ export function ContestSettingsModal({
         window.location.href = '/dashboard';
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to delete contest');
+      const msg = err.message || 'Failed to delete contest';
+      if (msg.includes('challenge_templates_source_contest_id_fkey')) {
+        setError(
+          'This challenge is linked to a published community template. Run the latest Supabase migration (20260609130000_contest_delete_template_fk.sql), then try again.'
+        );
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
       setShowDeleteConfirm(false);
@@ -165,6 +225,19 @@ export function ContestSettingsModal({
     setLoading(true);
     setError(null);
     try {
+      if (!user) throw new Error('Not signed in');
+
+      let icon = editedIconPicker.icon || 'target';
+      let iconUrl: string | null = null;
+
+      if (editedIconPicker.customFile) {
+        iconUrl = await uploadContestIcon(user.id, editedIconPicker.customFile);
+        icon = 'custom';
+      } else if (editedIconPicker.icon === 'custom' && editedIconPicker.iconUrl) {
+        icon = 'custom';
+        iconUrl = editedIconPicker.iconUrl;
+      }
+
       const metricsWithIds = editedMetrics.map((m, idx) => ({
         ...m,
         id: m.id || `metric_${idx}_${Date.now()}`,
@@ -179,6 +252,9 @@ export function ContestSettingsModal({
           start_date: new Date(editedStartDate).toISOString(),
           end_date: new Date(editedEndDate).toISOString(),
           metrics: metricsWithIds,
+          scoring_rules: editedScoringRules,
+          icon,
+          icon_url: iconUrl,
         })
         .eq('id', contestId);
 
@@ -288,6 +364,12 @@ export function ContestSettingsModal({
                   />
                 </div>
 
+                <ChallengeIconPicker
+                  value={editedIconPicker}
+                  onChange={setEditedIconPicker}
+                  disabled={loading}
+                />
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Start date &amp; time</label>
@@ -373,6 +455,82 @@ export function ContestSettingsModal({
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50/50">
+                  <h4 className="font-semibold text-gray-900 mb-1">Goals & group score alerts</h4>
+                  <p className="text-xs text-gray-600 mb-4">
+                    Habits-style targets for score % (achieved ÷ goal). Used in Stats & Insights and share cards.
+                  </p>
+                  {editedMetrics.map((metric) => {
+                    const key = metric.name.toLowerCase().replace(/\s+/g, '_');
+                    const g = editedScoringRules.goals?.[key] ?? editedScoringRules.goals?.[metric.name] ?? {};
+                    return (
+                      <div key={key} className="mb-4 last:mb-0 pb-4 last:pb-0 border-b last:border-0 border-indigo-100">
+                        <p className="text-sm font-medium text-gray-800 mb-2">{metric.label || metric.name}</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {(['daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as StatsPeriod[]).map((p) => (
+                            <div key={p}>
+                              <label className="text-xs text-gray-500">{PERIOD_LABELS[p]}</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={metric.type === 'boolean' ? 1 : 0.1}
+                                value={g[p] ?? ''}
+                                onChange={(e) => updateMetricGoal(key, p, e.target.value)}
+                                placeholder={metric.type === 'boolean' ? (p === 'daily' ? '1' : '7') : '—'}
+                                className="w-full mt-0.5 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-4 space-y-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={groupNotify.enabled}
+                        onChange={(e) =>
+                          setEditedScoringRules((prev) => ({
+                            ...prev,
+                            group_notifications: { ...groupNotify, enabled: e.target.checked },
+                          }))
+                        }
+                        className="rounded text-emerald-600"
+                      />
+                      Enable group score highlights
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={groupNotify.notifyOnGoalMiss}
+                        onChange={(e) =>
+                          setEditedScoringRules((prev) => ({
+                            ...prev,
+                            group_notifications: { ...groupNotify, notifyOnGoalMiss: e.target.checked },
+                          }))
+                        }
+                        className="rounded text-emerald-600"
+                      />
+                      Highlight when members miss period goals
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={groupNotify.notifyWeeklySummary}
+                        onChange={(e) =>
+                          setEditedScoringRules((prev) => ({
+                            ...prev,
+                            group_notifications: { ...groupNotify, notifyWeeklySummary: e.target.checked },
+                          }))
+                        }
+                        className="rounded text-emerald-600"
+                      />
+                      Weekly summary in group stats
+                    </label>
                   </div>
                 </div>
 

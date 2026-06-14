@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Navbar } from '../components/Layout/Navbar';
-import { Plus, Trophy, ExternalLink, Users, Check, Copy, Share2, Settings, LogOut, AlertCircle, X } from 'lucide-react';
+import { Plus, Trophy, ExternalLink, Users, Check, Copy, Share2, Settings, LogOut, AlertCircle, X, LayoutGrid, ListChecks, ChevronRight } from 'lucide-react';
 import { supabase, Contest, ChallengeTemplate } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { ContestWizard } from '../components/ContestWizard/ContestWizard';
@@ -9,9 +9,21 @@ import { ContestSettingsModal } from '../components/Contest/ContestSettingsModal
 import { LeaveContestModal } from '../components/Contest/LeaveContestModal';
 import { ShareModal } from '../components/Contest/ShareModal';
 import { EngagementReminderCard } from '../components/Dashboard/EngagementReminderCard';
+import { AdminTemplateReview } from '../components/Dashboard/AdminTemplateReview';
 import { ChallengeHabitStrip } from '../components/Dashboard/ChallengeHabitStrip';
-
+import { DailyQuickLog } from '../components/Dashboard/DailyQuickLog';
+import { ChallengeIcon } from '../components/Contest/ChallengeIcon';
+import { isContestVisibleOnDashboard, isContestActiveForLogging, getContestLifecycle, lifecycleLabel, lifecycleBadgeClass } from '../lib/contestStatus';
+import { getTodayString } from '../lib/dateUtils';
+import { initRealtimeNotifications } from '../lib/realtimeNotifications';
+import { setReminderUserId } from '../lib/engagementReminders';
 import { navigate } from '../lib/router';
+import {
+  TEMPLATE_ICON_MAP,
+  getTemplateCategoryColor,
+  isSystemTemplate,
+  isUserCreatedTemplate,
+} from '../lib/challengeTemplates';
 
 type ContestWithParticipation = Contest & {
   userRole?: 'admin' | 'participant';
@@ -19,18 +31,13 @@ type ContestWithParticipation = Contest & {
   participantCount?: number;
 };
 
-const ICON_MAP: Record<string, any> = {
-  'footprints': '👣',
-  'dumbbell': '🏋️',
-  'brain': '🧠',
-  'moon': '🌙',
-  'droplet': '💧',
-  'book-open': '📖',
-  'smartphone': '📱',
-  'activity': '🏃',
-  'heart': '❤️',
-  'target': '🎯',
-};
+const ICON_MAP = TEMPLATE_ICON_MAP;
+
+function unwrapContest(raw: unknown): Contest | null {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return (raw[0] as Contest) ?? null;
+  return raw as Contest;
+}
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -50,10 +57,17 @@ export function Dashboard() {
   const [joinCode, setJoinCode] = useState('');
   const [joiningByCode, setJoiningByCode] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [dashboardTab, setDashboardTab] = useState<'challenges' | 'templates'>('challenges');
+  const [loggedTodayContestIds, setLoggedTodayContestIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadChallenges();
     loadTemplates();
+    const tab = sessionStorage.getItem('dashboardTab');
+    if (tab === 'templates') {
+      setDashboardTab('templates');
+      sessionStorage.removeItem('dashboardTab');
+    }
   }, [user]);
 
   const loadTemplates = async () => {
@@ -90,6 +104,22 @@ export function Dashboard() {
 
       if (participantError) throw participantError;
 
+      const missingContestIds = (participantData || [])
+        .filter((p) => !unwrapContest(p.contests))
+        .map((p) => p.contest_id);
+
+      let fallbackContests: Record<string, Contest> = {};
+      if (missingContestIds.length > 0) {
+        const { data: fallbackData } = await supabase
+          .from('contests')
+          .select('*')
+          .in('id', missingContestIds);
+        fallbackContests = Object.fromEntries((fallbackData || []).map((c) => [c.id, c]));
+      }
+
+      const resolveContest = (p: { contest_id: string; contests: unknown }): Contest | null =>
+        unwrapContest(p.contests) ?? fallbackContests[p.contest_id] ?? null;
+
       const contestIds = createdData?.map(c => c.id) || [];
       const participantCounts = await Promise.all(
         contestIds.map(async (id) => {
@@ -121,7 +151,10 @@ export function Dashboard() {
       setCreatedChallenges(createdWithParticipantData);
 
       const participatingContestIds = (participantData || [])
-        .filter((p) => p.contests && (p.contests as any).creator_id !== user.id)
+        .filter((p) => {
+          const contest = resolveContest(p);
+          return contest && contest.creator_id !== user.id;
+        })
         .map((p) => p.contest_id);
 
       const participatingCounts = await Promise.all(
@@ -140,15 +173,33 @@ export function Dashboard() {
       );
 
       const participating = (participantData || [])
-        .filter((p) => p.contests && (p.contests as any).creator_id !== user.id)
-        .map((p) => ({
-          ...(p.contests as unknown as Contest),
-          userRole: p.role as 'admin' | 'participant',
-          participantId: p.id,
-          participantCount: participatingCountMap[p.contest_id] || 0,
-        }));
+        .filter((p) => {
+          const contest = resolveContest(p);
+          return contest && contest.creator_id !== user.id;
+        })
+        .map((p) => {
+          const contest = resolveContest(p)!;
+          return {
+            ...contest,
+            userRole: p.role as 'admin' | 'participant',
+            participantId: p.id,
+            participantCount: participatingCountMap[p.contest_id] || 0,
+          };
+        });
 
       setParticipatingChallenges(participating);
+
+      const participantIds = (participantData || []).map((p) => p.id);
+      if (participantIds.length > 0) {
+        const { data: todayLogs } = await supabase
+          .from('submissions')
+          .select('contest_id')
+          .in('participant_id', participantIds)
+          .eq('submission_date', getTodayString());
+        setLoggedTodayContestIds(new Set((todayLogs || []).map((s) => s.contest_id)));
+      } else {
+        setLoggedTodayContestIds(new Set());
+      }
     } catch (error) {
       console.error('Error loading challenges:', error);
     } finally {
@@ -249,14 +300,278 @@ export function Dashboard() {
     setShowWizard(true);
   };
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'fitness': return 'from-green-500 to-emerald-600';
-      case 'health': return 'from-blue-500 to-cyan-600';
-      case 'productivity': return 'from-orange-500 to-amber-600';
-      case 'mindfulness': return 'from-pink-500 to-rose-600';
-      default: return 'from-gray-400 to-gray-600';
+  const getCategoryColor = getTemplateCategoryColor;
+
+  const userTemplateCount = useMemo(
+    () => templates.filter(isUserCreatedTemplate).length,
+    [templates]
+  );
+
+  const allMyChallenges = useMemo(() => {
+    const byId = new Map<string, ContestWithParticipation>();
+    createdChallenges.forEach((c) => byId.set(c.id, c));
+    participatingChallenges.forEach((c) => byId.set(c.id, c));
+    return [...byId.values()].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [createdChallenges, participatingChallenges]);
+
+  const visibleChallenges = useMemo(
+    () =>
+      allMyChallenges.filter((c) => showCompleted || isContestVisibleOnDashboard(c)),
+    [allMyChallenges, showCompleted]
+  );
+
+  const quickLogChallenges = useMemo(
+    () =>
+      allMyChallenges
+        .filter(
+          (c) =>
+            c.participantId &&
+            isContestActiveForLogging(c) &&
+            !loggedTodayContestIds.has(c.id)
+        )
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          participantId: c.participantId!,
+          metrics: c.metrics || [],
+        })),
+    [allMyChallenges, loggedTodayContestIds]
+  );
+
+  const activeLoggingCount = useMemo(
+    () =>
+      allMyChallenges.filter((c) => c.participantId && isContestActiveForLogging(c)).length,
+    [allMyChallenges]
+  );
+
+  useEffect(() => {
+    if (!user) {
+      setReminderUserId(null);
+      return;
     }
+    setReminderUserId(user.id);
+    const contestIds = allMyChallenges.filter((c) => c.participantId).map((c) => c.id);
+    return initRealtimeNotifications(user.id, contestIds);
+  }, [user, allMyChallenges]);
+
+  const reminderChallengeOptions = useMemo(
+    () =>
+      allMyChallenges
+        .filter((c) => c.participantId && isContestActiveForLogging(c))
+        .map((c) => ({ id: c.id, name: c.name })),
+    [allMyChallenges]
+  );
+
+  const renderChallengeCard = (challenge: ContestWithParticipation) => {
+    const lifecycle = getContestLifecycle(challenge);
+    return (
+    <div
+      key={challenge.id}
+      className="border border-gray-200 rounded-lg p-6 hover:border-emerald-300 hover:shadow-md transition"
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-3">
+        <button
+          onClick={() => navigate(`/contest/${challenge.id}`)}
+          className="flex-1 min-w-0 text-left group flex items-start gap-3"
+        >
+          <ChallengeIcon icon={challenge.icon} iconUrl={challenge.icon_url} size="sm" className="bg-emerald-50 border border-emerald-100" />
+          <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-emerald-600 transition break-words">
+              {challenge.name}
+            </h3>
+            <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition shrink-0" />
+          </div>
+          <p className="text-sm text-gray-600 break-words">{challenge.description}</p>
+          </div>
+        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+          {challenge.creator_id === user?.id && (
+            <span className="px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
+              Created
+            </span>
+          )}
+          {challenge.userRole === 'admin' && challenge.creator_id !== user?.id && (
+            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
+              Admin
+            </span>
+          )}
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${lifecycleBadgeClass(lifecycle)}`}
+          >
+            {lifecycleLabel(lifecycle)}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+          <span>{challenge.metrics?.length || 0} metrics</span>
+          {loggedTodayContestIds.has(challenge.id) && isContestActiveForLogging(challenge) && (
+            <span className="text-emerald-600 font-medium">Logged today</span>
+          )}
+          {challenge.invite_code && challenge.creator_id === user?.id && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyInviteCode(challenge.invite_code!, challenge.id);
+              }}
+              className="flex items-center gap-1 font-mono text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition"
+            >
+              Code: {challenge.invite_code}
+              {copiedId === challenge.id ? (
+                <Check className="w-3 h-3 text-green-600" />
+              ) : (
+                <Copy className="w-3 h-3 text-gray-600" />
+              )}
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {challenge.invite_code && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSharingChallenge(challenge);
+              }}
+              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-medium"
+            >
+              <Share2 className="w-4 h-4 shrink-0" />
+              Share
+            </button>
+          )}
+
+          {challenge.userRole === 'admin' && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setManagingChallengeId(challenge.id);
+                }}
+                className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                Partners
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsChallenge(challenge);
+                }}
+                className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm font-medium"
+              >
+                <Settings className="w-4 h-4 shrink-0" />
+                Settings
+              </button>
+            </>
+          )}
+
+          {challenge.participantId && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLeavingChallenge(challenge);
+              }}
+              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium"
+            >
+              <LogOut className="w-4 h-4 shrink-0" />
+              Leave
+            </button>
+          )}
+        </div>
+        <ChallengeHabitStrip
+          contestId={challenge.id}
+          participantId={challenge.participantId}
+          startDate={challenge.start_date}
+          endDate={challenge.end_date}
+        />
+      </div>
+    </div>
+    );
+  };
+
+  const renderTemplatesTab = () => {
+    const systemTemplates = templates.filter(isSystemTemplate);
+
+    return (
+    <div>
+      <AdminTemplateReview />
+      <p className="text-gray-600 text-sm mb-6">
+        Pick a ready-made template to start quickly, or build a custom challenge from scratch.
+      </p>
+
+      <button
+        type="button"
+        onClick={() => navigate('/templates/community')}
+        className="w-full mb-6 flex items-center gap-4 rounded-xl border-2 border-violet-200 bg-gradient-to-r from-violet-50 to-purple-50 p-5 text-left hover:border-violet-400 hover:shadow-md transition group"
+      >
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0">
+          <Users className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900">Browse user created templates</p>
+          <p className="text-sm text-gray-600 mt-0.5">
+            Community challenges with keyword search — kept separate so ready-made templates stay easy to scan.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 text-violet-700 font-semibold text-sm">
+          {userTemplateCount > 0 ? (
+            <span className="hidden sm:inline px-2 py-0.5 rounded-full bg-violet-200/80 text-violet-900 text-xs">
+              {userTemplateCount} available
+            </span>
+          ) : null}
+          <span className="group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-1">
+            Open
+            <ChevronRight className="w-4 h-4" />
+          </span>
+        </div>
+      </button>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {systemTemplates.map((template) => (
+            <button
+              key={template.id}
+              onClick={() => handleTemplateSelect(template)}
+              className="bg-white rounded-xl p-5 shadow-sm border-2 border-gray-200 hover:border-emerald-400 hover:shadow-lg transition-all text-left group"
+            >
+              <div
+                className={`w-12 h-12 bg-gradient-to-br ${getCategoryColor(template.category)} rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform text-2xl`}
+              >
+                {ICON_MAP[template.icon] || '🎯'}
+              </div>
+              <h3 className="text-base font-semibold text-gray-900 mb-1">{template.name}</h3>
+              <p className="text-xs text-gray-600 mb-3 line-clamp-2">{template.description}</p>
+              <div className="flex items-center text-emerald-600 font-medium text-sm">
+                Use Template
+                <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </button>
+          ))}
+
+        <button
+          onClick={handleCreateFromScratch}
+          className="bg-white rounded-xl p-5 shadow-sm border-2 border-dashed border-gray-300 hover:border-emerald-400 hover:shadow-lg transition-all text-left group"
+        >
+          <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+            <Plus className="w-6 h-6 text-gray-600" />
+          </div>
+          <h3 className="text-base font-semibold text-gray-900 mb-1">Custom Challenge</h3>
+          <p className="text-xs text-gray-600 mb-3">Create with your own metrics</p>
+          <div className="flex items-center text-emerald-600 font-medium text-sm">
+            Create Custom
+            <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+      </div>
+    </div>
+    );
   };
 
   return (
@@ -264,342 +579,115 @@ export function Dashboard() {
       <Navbar />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">My Challenges</h1>
-            <p className="text-gray-600 text-sm sm:text-base">
-              Start a challenge and invite accountability partners
-            </p>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+          <p className="text-gray-600 text-sm sm:text-base">
+            Track progress and stay accountable with your group
+          </p>
+        </div>
+
+        <div className="flex gap-2 mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-1.5">
           <button
-            onClick={() => setShowJoinModal(true)}
-            className="flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium w-full sm:w-auto shrink-0"
+            type="button"
+            onClick={() => setDashboardTab('challenges')}
+            className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
+              dashboardTab === 'challenges'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
           >
-            <Plus className="w-5 h-5" />
-            Join with Code
+            <ListChecks className="w-4 h-4" />
+            My Challenges
+          </button>
+          <button
+            type="button"
+            onClick={() => setDashboardTab('templates')}
+            className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
+              dashboardTab === 'templates'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            Templates
           </button>
         </div>
 
-        {user && <EngagementReminderCard />}
+        {dashboardTab === 'challenges' && (
+          <>
+            {user && <EngagementReminderCard challenges={reminderChallengeOptions} />}
 
-        <div className="mb-12">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Challenge Templates</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {templates
-              .filter(t => t.category !== 'custom')
-              .map((template) => (
-                <button
-                  key={template.id}
-                  onClick={() => handleTemplateSelect(template)}
-                  className="bg-white rounded-xl p-5 shadow-sm border-2 border-gray-200 hover:border-emerald-400 hover:shadow-lg transition-all text-left group"
-                >
-                  <div className={`w-12 h-12 bg-gradient-to-br ${getCategoryColor(template.category)} rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform text-2xl`}>
-                    {ICON_MAP[template.icon] || '🎯'}
-                  </div>
-                  <h3 className="text-base font-semibold text-gray-900 mb-1">{template.name}</h3>
-                  <p className="text-xs text-gray-600 mb-3 line-clamp-2">{template.description}</p>
-                  <div className="flex items-center text-emerald-600 font-medium text-sm">
-                    Use Template
-                    <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </button>
-              ))}
+            {!loading && activeLoggingCount > 0 && (
+              <DailyQuickLog
+                challenges={quickLogChallenges}
+                onSuccess={() => void loadChallenges()}
+              />
+            )}
 
-            <button
-              onClick={handleCreateFromScratch}
-              className="bg-white rounded-xl p-5 shadow-sm border-2 border-dashed border-gray-300 hover:border-emerald-400 hover:shadow-lg transition-all text-left group"
-            >
-              <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                <Plus className="w-6 h-6 text-gray-600" />
-              </div>
-              <h3 className="text-base font-semibold text-gray-900 mb-1">Custom Challenge</h3>
-              <p className="text-xs text-gray-600 mb-3">Create with your own metrics</p>
-              <div className="flex items-center text-emerald-600 font-medium text-sm">
-                Create Custom
-                <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-xl font-bold text-gray-900">My Challenges</h3>
-                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={showCompleted}
-                    onChange={(e) => setShowCompleted(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
-                  />
-                  Show Completed
-                </label>
-              </div>
-            </div>
-
-            <div className="p-6">
-              {loading ? (
-                <div className="text-center py-12">
-                  <div className="inline-block w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              ) : createdChallenges.length === 0 ? (
-                <div className="text-center py-12">
-                  <Trophy className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600 mb-2">No challenges created yet</p>
-                  <p className="text-sm text-gray-500">Use a template to get started</p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {createdChallenges
-                    .filter((challenge) => showCompleted || challenge.status !== 'completed')
-                    .map((challenge) => (
-                    <div
-                      key={challenge.id}
-                      className="border border-gray-200 rounded-lg p-6 hover:border-emerald-300 hover:shadow-md transition"
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-3">
-                        <button
-                          onClick={() => navigate(`/contest/${challenge.id}`)}
-                          className="flex-1 min-w-0 text-left group"
-                        >
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-emerald-600 transition break-words">
-                              {challenge.name}
-                            </h3>
-                            <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition shrink-0" />
-                          </div>
-                          <p className="text-sm text-gray-600 break-words">{challenge.description}</p>
-                        </button>
-                        <span
-                          className={`self-start px-3 py-1 rounded-full text-xs font-medium shrink-0 ${
-                            challenge.status === 'active'
-                              ? 'bg-green-100 text-green-800'
-                              : challenge.status === 'draft'
-                              ? 'bg-gray-100 text-gray-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}
-                        >
-                          {challenge.status}
-                        </span>
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
-                          <span>{challenge.metrics?.length || 0} metrics</span>
-                          {challenge.invite_code && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyInviteCode(challenge.invite_code!, challenge.id);
-                              }}
-                              className="flex items-center gap-1 font-mono text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition"
-                            >
-                              Code: {challenge.invite_code}
-                              {copiedId === challenge.id ? (
-                                <Check className="w-3 h-3 text-green-600" />
-                              ) : (
-                                <Copy className="w-3 h-3 text-gray-600" />
-                              )}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2 flex-wrap">
-                          {challenge.invite_code && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSharingChallenge(challenge);
-                              }}
-                              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-medium"
-                            >
-                              <Share2 className="w-4 h-4 shrink-0" />
-                              Share
-                            </button>
-                          )}
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setManagingChallengeId(challenge.id);
-                            }}
-                            className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
-                          >
-                            <Users className="w-4 h-4 shrink-0" />
-                            Partners
-                          </button>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSettingsChallenge(challenge);
-                            }}
-                            className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm font-medium"
-                          >
-                            <Settings className="w-4 h-4 shrink-0" />
-                            Settings
-                          </button>
-
-                          {challenge.participantId && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setLeavingChallenge(challenge);
-                              }}
-                              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium"
-                            >
-                              <LogOut className="w-4 h-4 shrink-0" />
-                              Leave
-                            </button>
-                          )}
-                        </div>
-                        <ChallengeHabitStrip
-                          contestId={challenge.id}
-                          participantId={challenge.participantId}
-                          startDate={challenge.start_date}
-                          endDate={challenge.end_date}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {!loading && participatingChallenges.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="text-xl font-bold text-gray-900">Joined Challenges</h3>
-                  <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={showCompleted}
-                      onChange={(e) => setShowCompleted(e.target.checked)}
-                      className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
-                    />
-                    Show Completed
-                  </label>
+                  <h2 className="text-xl font-bold text-gray-900">My Challenges</h2>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={showCompleted}
+                        onChange={(e) => setShowCompleted(e.target.checked)}
+                        className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                      />
+                      Show ended
+                    </label>
+                    <button
+                      onClick={() => setShowJoinModal(true)}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-emerald-600 text-emerald-700 rounded-lg hover:bg-emerald-50 transition text-sm font-medium"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Join with Code
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="p-6">
-                <div className="grid gap-4">
-                  {participatingChallenges
-                    .filter((challenge) => showCompleted || challenge.status !== 'completed')
-                    .map((challenge) => (
-                      <div
-                        key={challenge.id}
-                        className="border border-gray-200 rounded-lg p-6 hover:border-emerald-300 hover:shadow-md transition"
+                {loading ? (
+                  <div className="text-center py-12">
+                    <div className="inline-block w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : visibleChallenges.length === 0 ? (
+                  <div className="text-center py-12 px-4">
+                    <Trophy className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-900 font-semibold mb-1">No active challenges</p>
+                    <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
+                      Create a new challenge or join one with an invite code to get started.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <button
+                        onClick={() => setDashboardTab('templates')}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium"
                       >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-3">
-                          <button
-                            onClick={() => navigate(`/contest/${challenge.id}`)}
-                            className="flex-1 min-w-0 text-left group"
-                          >
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-emerald-600 transition break-words">
-                                {challenge.name}
-                              </h3>
-                              <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition shrink-0" />
-                            </div>
-                            <p className="text-sm text-gray-600 break-words">{challenge.description}</p>
-                          </button>
-                          <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
-                            {challenge.userRole === 'admin' && (
-                              <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                Admin
-                              </span>
-                            )}
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                challenge.status === 'active'
-                                  ? 'bg-green-100 text-green-800'
-                                  : challenge.status === 'draft'
-                                  ? 'bg-gray-100 text-gray-800'
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}
-                            >
-                              {challenge.status}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span>{challenge.metrics?.length || 0} metrics</span>
-                          </div>
-
-                          <div className="flex gap-2 flex-wrap">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSharingChallenge(challenge);
-                              }}
-                              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-medium"
-                            >
-                              <Share2 className="w-4 h-4 shrink-0" />
-                              Share
-                            </button>
-
-                            {challenge.userRole === 'admin' && (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setManagingChallengeId(challenge.id);
-                                  }}
-                                  className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
-                                >
-                                  <Users className="w-4 h-4 shrink-0" />
-                                  Partners
-                                </button>
-
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSettingsChallenge(challenge);
-                                  }}
-                                  className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm font-medium"
-                                >
-                                  <Settings className="w-4 h-4 shrink-0" />
-                                  Settings
-                                </button>
-                              </>
-                            )}
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setLeavingChallenge(challenge);
-                              }}
-                              className="flex flex-1 min-w-[calc(50%-4px)] sm:flex-initial items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium"
-                            >
-                              <LogOut className="w-4 h-4 shrink-0" />
-                              Leave
-                            </button>
-                          </div>
-                          <ChallengeHabitStrip
-                            contestId={challenge.id}
-                            participantId={challenge.participantId}
-                            startDate={challenge.start_date}
-                            endDate={challenge.end_date}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                </div>
+                        <Plus className="w-5 h-5" />
+                        Create Challenge
+                      </button>
+                      <button
+                        onClick={() => setShowJoinModal(true)}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-white border-2 border-emerald-600 text-emerald-700 rounded-lg hover:bg-emerald-50 transition font-medium"
+                      >
+                        Join with Code
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {visibleChallenges.map((challenge) => renderChallengeCard(challenge))}
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {dashboardTab === 'templates' && renderTemplatesTab()}
       </div>
 
       {showWizard && (
@@ -609,7 +697,10 @@ export function Dashboard() {
             setShowWizard(false);
             setSelectedTemplate(null);
           }}
-          onSuccess={() => loadChallenges()}
+          onSuccess={() => {
+            loadChallenges();
+            setDashboardTab('challenges');
+          }}
         />
       )}
 
@@ -625,11 +716,14 @@ export function Dashboard() {
           contestId={settingsChallenge.id}
           contestName={settingsChallenge.name}
           contestDescription={settingsChallenge.description}
+          contestIcon={settingsChallenge.icon}
+          contestIconUrl={settingsChallenge.icon_url}
           currentStatus={settingsChallenge.status}
           isClosedForJoining={settingsChallenge.is_closed_for_joining || false}
           startDate={settingsChallenge.start_date}
           endDate={settingsChallenge.end_date}
           metrics={settingsChallenge.metrics || []}
+          scoringRules={settingsChallenge.scoring_rules}
           autoDeleteAt={settingsChallenge.auto_delete_at || null}
           onClose={() => setSettingsChallenge(null)}
           onSuccess={() => {

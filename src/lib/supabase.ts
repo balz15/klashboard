@@ -13,6 +13,7 @@ export type Profile = {
   id: string;
   email: string;
   full_name: string;
+  is_app_admin?: boolean;
   created_at: string;
 };
 
@@ -33,6 +34,8 @@ export type Contest = {
   auto_delete_at?: string;
   group_streak_count?: number;
   last_group_streak_date?: string;
+  icon?: string;
+  icon_url?: string | null;
   created_at: string;
 };
 
@@ -59,9 +62,10 @@ export type ChallengeTemplate = {
   id: string;
   name: string;
   description: string;
-  category: 'fitness' | 'health' | 'productivity' | 'mindfulness' | 'custom';
+  category: 'fitness' | 'health' | 'productivity' | 'mindfulness' | 'custom' | 'user_created';
   default_metrics: Array<{ name: string; unit: string }>;
   suggested_duration_days: number;
   icon: string;
+  icon_url?: string | null;
   created_at: string;
 };

@@ -62,6 +62,44 @@ export function getTodayString(): string {
   return getLocalDateString(new Date());
 }
 
+/**
+ * Calendar YYYY-MM-DD from a stored contest date.
+ * Uses the date portion of the stored string so UTC timestamps don't shift the intended day.
+ */
+export function getContestCalendarDate(iso: string): string {
+  if (!iso) return getTodayString();
+  const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  return getLocalDateString(parseContestDate(iso));
+}
+
+/** Postgres `date` columns — strip datetime-local / ISO to YYYY-MM-DD. */
+export function toContestDbDate(value: string): string {
+  return getContestCalendarDate(value);
+}
+
 export function parseLocalDate(dateStr: string): Date {
-  return new Date(dateStr + 'T00:00:00');
+  return new Date(dateStr.slice(0, 10) + 'T00:00:00');
+}
+
+/** Parse contest start/end stored as ISO or date-only strings. */
+export function parseContestDate(iso: string): Date {
+  if (!iso) return new Date();
+  const parsed = new Date(iso);
+  if (!Number.isNaN(parsed.getTime())) {
+    const d = new Date(parsed);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  return parseLocalDate(iso);
+}
+
+export function contestDurationDays(startDate: string, endDate: string): number {
+  const start = parseLocalDate(getContestCalendarDate(startDate));
+  const end = parseLocalDate(getContestCalendarDate(endDate));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endCap = end.getTime() < today.getTime() ? end : today;
+  const days = Math.floor((endCap.getTime() - start.getTime()) / 86400000) + 1;
+  return Number.isFinite(days) && days > 0 ? days : 1;
 }

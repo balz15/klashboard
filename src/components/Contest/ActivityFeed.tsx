@@ -7,6 +7,7 @@ type ActivityItem = {
   type: 'submission' | 'missed' | 'streak_milestone' | 'poke';
   participantName: string;
   targetName?: string;
+  pokeMessage?: string;
   date: string;
   timestamp: string;
   streakCount?: number;
@@ -47,7 +48,7 @@ export function ActivityFeed({ contestId }: ActivityFeedProps) {
 
       const { data: pokes, error: pokesError } = await supabase
         .from('contest_pokes')
-        .select('from_user_id, to_user_id, created_at')
+        .select('from_user_id, to_user_id, message, created_at')
         .eq('contest_id', contestId)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -68,6 +69,7 @@ export function ActivityFeed({ contestId }: ActivityFeedProps) {
           type: 'poke',
           participantName: fromName,
           targetName: toName,
+          pokeMessage: poke.message ?? undefined,
           date: poke.created_at.slice(0, 10),
           timestamp: poke.created_at,
         });
@@ -171,6 +173,9 @@ export function ActivityFeed({ contestId }: ActivityFeedProps) {
           <span>
             <span className="font-semibold">{activity.participantName}</span> nudged{' '}
             <span className="font-semibold text-indigo-700">{activity.targetName}</span>
+            {activity.pokeMessage && (
+              <span className="block text-sm text-gray-600 mt-0.5 italic">&quot;{activity.pokeMessage}&quot;</span>
+            )}
           </span>
         );
       default:

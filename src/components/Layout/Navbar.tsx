@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { navigate, getCurrentRoute, onRouteChange } from '../../lib/router';
 
 export function Navbar() {
-  const { profile, signOut } = useAuth();
+  const { profile, displayName, signOut } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [currentPath, setCurrentPath] = useState(getCurrentRoute());
@@ -103,14 +103,14 @@ export function Navbar() {
                   <User className="w-4 h-4 text-white" />
                 </div>
                 <span className="hidden sm:block text-sm font-medium text-gray-700">
-                  {profile?.full_name || 'User'}
+                  {displayName}
                 </span>
               </button>
 
               {showDropdown && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                   <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-900">{profile?.full_name}</p>
+                    <p className="text-sm font-medium text-gray-900">{displayName}</p>
                     <p className="text-xs text-gray-500">{profile?.email}</p>
                   </div>
                   <button

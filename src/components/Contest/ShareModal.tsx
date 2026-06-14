@@ -1,5 +1,6 @@
-import { X, Copy, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
+import { X, Copy, CheckCircle } from 'lucide-react';
+import { getContestDeepLink } from '../../lib/shareLinks';
 
 type ShareModalProps = {
   contestId: string;
@@ -37,7 +38,7 @@ Let's build better habits together! 💪
 
 Use code: ${inviteCode}
 
-Join here: ${window.location.origin}/contest/${contestId}`;
+Join here: ${getContestDeepLink(contestId)}`;
   };
 
   const handleCopyCode = async () => {
@@ -71,7 +72,7 @@ Join here: ${window.location.origin}/contest/${contestId}`;
 
   const handleShareTwitter = () => {
     const text = `🎯 Join me in the "${contestName}" challenge!\n\n${participantCount} people are already in. Let's build better habits together! 💪\n\nCode: ${inviteCode}`;
-    const url = `${window.location.origin}/contest/${contestId}`;
+    const url = getContestDeepLink(contestId);
     window.open(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
       '_blank'
@@ -79,12 +80,12 @@ Join here: ${window.location.origin}/contest/${contestId}`;
   };
 
   const handleShareFacebook = () => {
-    const url = `${window.location.origin}/contest/${contestId}`;
+    const url = getContestDeepLink(contestId);
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, '_blank');
   };
 
   const handleShareLinkedIn = () => {
-    const url = `${window.location.origin}/contest/${contestId}`;
+    const url = getContestDeepLink(contestId);
     window.open(
       `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
       '_blank'

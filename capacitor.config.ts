@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.groupchallenge.app',
-  appName: 'Group Challenge',
+  appName: 'KlashBoard',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
@@ -18,6 +18,10 @@ const config: CapacitorConfig = {
     StatusBar: {
       style: 'light',
       backgroundColor: '#1f2937'
+    },
+    LocalNotifications: {
+      smallIcon: 'ic_stat_klashboard',
+      iconColor: '#6366F1'
     }
   }
 };

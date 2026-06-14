@@ -25,9 +25,5 @@ CREATE POLICY "Users can view contests"
     visibility = 'public'
     OR creator_id = auth.uid()
     OR invite_code IS NOT NULL
-    OR EXISTS (
-      SELECT 1 FROM contest_participants
-      WHERE contest_participants.contest_id = contests.id
-      AND contest_participants.user_id = auth.uid()
-    )
+    OR user_is_in_contest(id, auth.uid())
   );

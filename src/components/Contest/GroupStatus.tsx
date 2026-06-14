@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Users, Flame, AlertTriangle, XCircle, Zap } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getTodayString, getYesterdayString, parseLocalDate } from '../../lib/dateUtils';
-import { sendContestPoke } from '../../lib/pokeParticipant';
+import { NudgeModal } from './NudgeModal';
 
 type Participant = {
   id: string;
@@ -33,6 +33,7 @@ export function GroupStatus({ contestId, startDate, currentUserId }: GroupStatus
   const [statuses, setStatuses] = useState<ParticipantStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [pokeSentAt, setPokeSentAt] = useState<Record<string, number>>({});
+  const [nudgeTarget, setNudgeTarget] = useState<{ userId: string; name: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -149,14 +150,7 @@ export function GroupStatus({ contestId, startDate, currentUserId }: GroupStatus
     }
   };
 
-  const handlePoke = async (toUserId: string) => {
-    const last = pokeSentAt[toUserId];
-    if (last && Date.now() - last < POKE_COOLDOWN_MS) return;
-    const { error } = await sendContestPoke(contestId, toUserId);
-    if (error) {
-      alert(error.message || 'Could not send nudge');
-      return;
-    }
+  const handlePokeSent = (toUserId: string) => {
     setPokeSentAt((prev) => ({ ...prev, [toUserId]: Date.now() }));
   };
 
@@ -221,7 +215,12 @@ export function GroupStatus({ contestId, startDate, currentUserId }: GroupStatus
                     <button
                       type="button"
                       disabled={cooldown > 0}
-                      onClick={() => handlePoke(item.participant.user_id)}
+                      onClick={() =>
+                        setNudgeTarget({
+                          userId: item.participant.user_id,
+                          name: name,
+                        })
+                      }
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Zap className="w-3.5 h-3.5" />
@@ -278,6 +277,16 @@ export function GroupStatus({ contestId, startDate, currentUserId }: GroupStatus
         {getStatusSection('missed_today')}
         {getStatusSection('falling_behind')}
       </div>
+
+      {nudgeTarget && (
+        <NudgeModal
+          contestId={contestId}
+          toUserId={nudgeTarget.userId}
+          toUserName={nudgeTarget.name}
+          onClose={() => setNudgeTarget(null)}
+          onSent={() => handlePokeSent(nudgeTarget.userId)}
+        />
+      )}
     </div>
   );
 }
