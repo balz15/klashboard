@@ -4,14 +4,27 @@ import { navigate } from '../lib/router';
 export function About() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <div className="max-w-4xl mx-auto px-4 py-16">
-        <button
-          onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-emerald-600 font-medium mb-8 transition"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </button>
+      <header className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-emerald-600 font-medium transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/privacy')}
+            className="text-sm font-medium text-gray-600 hover:text-emerald-600 transition shrink-0"
+          >
+            Privacy Policy
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-4 py-10">
         <div className="text-center mb-16">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">
             Your Goals Don't Have to Be Lonely Anymore

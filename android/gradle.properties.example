@@ -1,0 +1,10 @@
+# Copy to android/gradle.properties and fill in your release keystore values.
+# Do not commit android/gradle.properties — it is gitignored.
+
+org.gradle.jvmargs=-Xmx1536m
+android.useAndroidX=true
+
+MYAPP_RELEASE_STORE_FILE=../my-release-key.keystore
+MYAPP_RELEASE_KEY_ALIAS=my-key-alias
+MYAPP_RELEASE_STORE_PASSWORD=your_store_password
+MYAPP_RELEASE_KEY_PASSWORD=your_key_password

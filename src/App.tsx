@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { UserTemplates } from './pages/UserTemplates';
 import { ContestDetail } from './pages/ContestDetail';
 import { About } from './pages/About';
+import { Privacy } from './pages/Privacy';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { isConfigured } from './lib/supabase';
@@ -37,6 +38,10 @@ function AppContent() {
 
   if (currentPath === '/about') {
     return <About />;
+  }
+
+  if (currentPath === '/privacy') {
+    return <Privacy />;
   }
 
   if (currentPath === '/templates/community') {

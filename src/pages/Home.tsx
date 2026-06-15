@@ -375,6 +375,9 @@ export function Home() {
               <button onClick={() => navigate('/about')} className="hover:text-white transition">
                 About
               </button>
+              <button onClick={() => navigate('/privacy')} className="hover:text-white transition">
+                Privacy
+              </button>
               <button onClick={() => navigate('/auth')} className="hover:text-white transition">
                 Login
               </button>

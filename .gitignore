@@ -22,3 +22,11 @@ dist-ssr
 *.sw?
 .env
 vite.config.ts.timestamp-*.mjs
+
+# Android build outputs and local signing (never commit)
+android/app/build/
+android/.gradle/
+android/build/
+android/capacitor-cordova-android-plugins/build/
+*.keystore
+android/gradle.properties
