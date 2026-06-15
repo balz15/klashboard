@@ -10,6 +10,8 @@ import {
   smartDatetimeLocalUpdate,
   toContestDbDate,
 } from '../../lib/dateUtils';
+import { DEFAULT_GROUP_NOTIFICATIONS, type ScoringRules } from '../../lib/challengeGoals';
+import { ChallengeGoalsSection } from '../Contest/ChallengeGoalsSection';
 
 type Metric = {
   name: string;
@@ -49,6 +51,12 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
       customFile: null,
     } as IconPickerValue,
   });
+  const [scoringRules, setScoringRules] = useState<ScoringRules>({
+    goals: {},
+    group_notifications: DEFAULT_GROUP_NOTIFICATIONS,
+  });
+
+  const trackMetric = formData.metrics[0];
 
   useEffect(() => {
     if (template) {
@@ -148,7 +156,7 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
           visibility: 'private',
           status: 'active',
           metrics: metricsForDB,
-          scoring_rules: {},
+          scoring_rules: scoringRules,
           invite_code: inviteCode,
           icon: iconPayload.icon,
           icon_url: iconUrl,
@@ -334,22 +342,33 @@ export function ContestWizard({ template, onClose, onSuccess }: ContestWizardPro
                     className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   >
                     <option value="boolean">Yes/No</option>
-                    <option value="number">Number</option>
+                    <option value="number">Measurable</option>
                   </select>
                   {formData.metrics[0]?.type !== 'boolean' && (
                     <input
                       type="text"
                       value={formData.metrics[0]?.unit || ''}
                       onChange={(e) => updateMetric('unit', e.target.value)}
-                      placeholder="Unit (e.g., steps, pages, minutes)"
+                      placeholder="Unit of measurement"
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     />
                   )}
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Choose "Yes/No" for simple daily completion (Did you do it?), or "Number" to track quantities (How many?).
+                Choose &quot;Yes/No&quot; for simple daily completion (Did you do it?), or &quot;Measurable&quot; to
+                track quantities (How many?).
               </p>
+
+              {trackMetric?.name && (
+                <div className="mt-4">
+                  <ChallengeGoalsSection
+                    metrics={[trackMetric]}
+                    scoringRules={scoringRules}
+                    onChange={setScoringRules}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
