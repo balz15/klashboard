@@ -461,14 +461,23 @@ export function ContestSettingsModal({
                 <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50/50">
                   <h4 className="font-semibold text-gray-900 mb-1">Goals & group score alerts</h4>
                   <p className="text-xs text-gray-600 mb-4">
-                    Habits-style targets for score % (achieved ÷ goal). Used in Stats & Insights and share cards.
+                    <strong className="font-medium text-gray-800">Per-person targets</strong> for each metric. Score % =
+                    logged amount ÷ this goal (shown in Stats &amp; Insights and share cards). In{' '}
+                    <strong className="font-medium text-gray-800">group</strong> stats, everyone&apos;s logs are added
+                    together and compared to (goal × number of members). Leave blank to skip a period.
                   </p>
                   {editedMetrics.map((metric) => {
                     const key = metric.name.toLowerCase().replace(/\s+/g, '_');
                     const g = editedScoringRules.goals?.[key] ?? editedScoringRules.goals?.[metric.name] ?? {};
+                    const unitSuffix = metric.unit ? ` ${metric.unit}` : '';
                     return (
                       <div key={key} className="mb-4 last:mb-0 pb-4 last:pb-0 border-b last:border-0 border-indigo-100">
-                        <p className="text-sm font-medium text-gray-800 mb-2">{metric.label || metric.name}</p>
+                        <p className="text-sm font-medium text-gray-800">{metric.label || metric.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 mb-2">
+                          {metric.type === 'boolean'
+                            ? 'Yes/No: 1 daily = each person completes once today. Weekly 7 = seven successful days per person in the week.'
+                            : `Example: Daily 5000 = each member aims for 5,000${unitSuffix} per day. Group view compares the sum of all members to 5,000 × group size.`}
+                        </p>
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                           {(['daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as StatsPeriod[]).map((p) => (
                             <div key={p}>
@@ -501,7 +510,7 @@ export function ContestSettingsModal({
                         }
                         className="rounded text-emerald-600"
                       />
-                      Enable group score highlights
+                      Show goal scores in group Stats &amp; Insights
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <input
@@ -515,7 +524,7 @@ export function ContestSettingsModal({
                         }
                         className="rounded text-emerald-600"
                       />
-                      Highlight when members miss period goals
+                      Flag members who miss their period target
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <input
