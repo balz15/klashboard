@@ -7,7 +7,7 @@ echo "=========================================="
 # Step 1: Build web assets
 echo ""
 echo "Step 1: Building web assets..."
-npm run build
+npm run build:capacitor
 
 if [ $? -ne 0 ]; then
     echo "❌ Build failed!"

@@ -73,9 +73,9 @@ You can host the web app on your domain in several ways.
 ### Option B: Vercel
 
 1. Sign up at [vercel.com](https://vercel.com) and import your repo.
-2. Add env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
-3. Deploy, then add `www.klashboard.com` under **Domains**.
-4. Update DNS as instructed by Vercel.
+2. Add env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PUBLIC_APP_URL`.
+3. Deploy uses `vercel.json` so direct links like `/privacy` and `/delete-account` work.
+4. Add `www.klashboard.com` under **Domains** and update DNS as instructed.
 
 ### Option C: Your own server (e.g. VPS, shared hosting)
 
