@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { User } from '@supabase/supabase-js';
 import { supabase, Profile } from '../lib/supabase';
 import { navigate } from '../lib/router';
+import { deleteOwnAccount } from '../lib/deleteAccount';
 
 type AuthContextType = {
   user: User | null;
@@ -11,6 +12,7 @@ type AuthContextType = {
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -174,9 +176,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate('/');
   };
 
+  const deleteAccount = async () => {
+    await deleteOwnAccount();
+    setUser(null);
+    setProfile(null);
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, profile, displayName, loading, signUp, signIn, signOut }}
+      value={{ user, profile, displayName, loading, signUp, signIn, signOut, deleteAccount }}
     >
       {children}
     </AuthContext.Provider>

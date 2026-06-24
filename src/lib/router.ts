@@ -1,4 +1,4 @@
-type Route = '/' | '/auth' | '/about' | '/privacy' | '/dashboard' | '/templates/community' | `/contest/${string}`;
+type Route = '/' | '/auth' | '/about' | '/privacy' | '/delete-account' | '/dashboard' | '/templates/community' | `/contest/${string}`;
 
 type Listener = (route: Route) => void;
 
@@ -11,6 +11,7 @@ export function pathToRoute(pathname: string): Route {
   if (pathname === '/auth' || pathname === '/auth/') return '/auth';
   if (pathname === '/about' || pathname === '/about/') return '/about';
   if (pathname === '/privacy' || pathname === '/privacy/') return '/privacy';
+  if (pathname === '/delete-account' || pathname === '/delete-account/') return '/delete-account';
   if (pathname === '/dashboard' || pathname === '/dashboard/') return '/dashboard';
   if (pathname === '/templates/community' || pathname === '/templates/community/') {
     return '/templates/community';

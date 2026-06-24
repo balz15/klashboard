@@ -6,6 +6,7 @@ import { UserTemplates } from './pages/UserTemplates';
 import { ContestDetail } from './pages/ContestDetail';
 import { About } from './pages/About';
 import { Privacy } from './pages/Privacy';
+import { DeleteAccount } from './pages/DeleteAccount';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { isConfigured } from './lib/supabase';
@@ -42,6 +43,10 @@ function AppContent() {
 
   if (currentPath === '/privacy') {
     return <Privacy />;
+  }
+
+  if (currentPath === '/delete-account') {
+    return <DeleteAccount />;
   }
 
   if (currentPath === '/templates/community') {

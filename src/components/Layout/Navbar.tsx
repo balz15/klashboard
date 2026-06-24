@@ -1,5 +1,5 @@
 import { useAuth } from '../../contexts/AuthContext';
-import { Trophy, LogOut, User, LayoutDashboard, Menu, X, Info } from 'lucide-react';
+import { Trophy, LogOut, User, LayoutDashboard, Menu, X, Info, Trash2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { navigate, getCurrentRoute, onRouteChange } from '../../lib/router';
 
@@ -113,6 +113,16 @@ export function Navbar() {
                     <p className="text-sm font-medium text-gray-900">{displayName}</p>
                     <p className="text-xs text-gray-500">{profile?.email}</p>
                   </div>
+                  <button
+                    onMouseDown={() => {
+                      setShowDropdown(false);
+                      navigate('/delete-account');
+                    }}
+                    className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete account
+                  </button>
                   <button
                     onMouseDown={handleSignOut}
                     className="w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"

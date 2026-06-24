@@ -74,10 +74,30 @@ export function Privacy() {
           to host authentication and data storage under industry-standard security practices.
         </p>
 
-        <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Data retention</h2>
+        <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Data retention &amp; deletion</h2>
+        <p className="text-gray-700 leading-relaxed mb-4">
+          We retain account and challenge data while your account is active. You can delete your account at any time:
+        </p>
+        <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-4">
+          <li>
+            <strong>In the app or on the web:</strong>{' '}
+            <button
+              type="button"
+              onClick={() => navigate('/delete-account')}
+              className="text-emerald-600 hover:text-emerald-700 underline font-medium"
+            >
+              Delete your account
+            </button>{' '}
+            (profile menu → Delete account, or visit{' '}
+            <span className="font-mono text-sm">/delete-account</span>)
+          </li>
+          <li>
+            <strong>By email:</strong> if you cannot sign in, contact us using the address below
+          </li>
+        </ul>
         <p className="text-gray-700 leading-relaxed">
-          We retain account and challenge data while your account is active. You may request deletion of your account and
-          associated data by contacting us at the email listed below or via our Google Play store listing.
+          Deletion removes your login, profile, challenges you created, your logs and chat messages, and related stored
+          files. See the delete-account page for full details.
         </p>
 
         <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Security</h2>
@@ -95,7 +115,18 @@ export function Privacy() {
         <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Your choices</h2>
         <ul className="list-disc pl-6 space-y-2 text-gray-700">
           <li>You can turn off notifications and reminders in the app settings.</li>
-          <li>You can leave challenges or delete your account by contacting support.</li>
+          <li>You can leave challenges without deleting your account.</li>
+          <li>
+            You can permanently delete your account from the{' '}
+            <button
+              type="button"
+              onClick={() => navigate('/delete-account')}
+              className="text-emerald-600 hover:text-emerald-700 underline font-medium"
+            >
+              account deletion page
+            </button>
+            .
+          </li>
         </ul>
 
         <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Changes</h2>

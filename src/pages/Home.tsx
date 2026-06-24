@@ -378,6 +378,9 @@ export function Home() {
               <button onClick={() => navigate('/privacy')} className="hover:text-white transition">
                 Privacy
               </button>
+              <button onClick={() => navigate('/delete-account')} className="hover:text-white transition">
+                Delete account
+              </button>
               <button onClick={() => navigate('/auth')} className="hover:text-white transition">
                 Login
               </button>

@@ -83,7 +83,7 @@ Typical declarations:
 - **Data collected** — email, name/profile, challenge entries, chat messages (if used)  
 - **Data shared** — with other challenge participants in your groups  
 - **Encryption in transit** — Yes (HTTPS)  
-- **Data deletion** — users can request account/data deletion (add support process)  
+- **Data deletion** — self-service at https://www.klashboard.com/delete-account (profile menu → Delete account)
 
 Review [Supabase privacy](https://supabase.com/privacy) — you act as data controller for your app users.
 
